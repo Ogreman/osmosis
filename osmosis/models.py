@@ -147,6 +147,7 @@ class AbstractImportTask(models.Model):
 
             # If we were given any forms by their module path, then swap
             # them here so that meta.forms is always a list of classes
+            new_forms = []
             for form in meta.forms:
                 if isinstance(form, basestring):
                     module, klass = form.rsplit(".", 1)
