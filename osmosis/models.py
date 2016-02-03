@@ -108,7 +108,7 @@ class AbstractImportTask(models.Model):
         """
         if not hasattr(cls, '_optional_fields'):
             meta = cls.get_meta()
-            cls._optional_fields [
+            cls._optional_fields = [
                 (name, field.help_text)
                 for form in meta.forms
                 for name, field in form.base_fields.items()
