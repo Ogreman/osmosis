@@ -91,38 +91,44 @@ class AbstractImportTask(models.Model):
         Get a list of the required form fields from all of the
         forms in cls.Osmosis.
         """
-        meta = cls.get_meta()
-        fields = []
-        for form in meta.forms:
-            for name, field in form.base_fields.items():
-                if field.required and field.initial is None:
-                    fields.append((name, field.help_text))
-        return fields
+        if not hasattr(cls, '_required_fields'):
+            meta = cls.get_meta()
+            cls._required_fields = [
+                (name, field.help_text)
+                for form in meta.forms
+                for name, field in form.base_fields.items()
+                if field.required and field.initial is None
+            ]
+        return cls._required_fields
 
     @classmethod
     def optional_fields(cls):
         """
         Get a list of the optional form fields from all of the forms in cls.Osmosis.
         """
-        meta = cls.get_meta()
-        fields = []
-        for form in meta.forms:
-            for name, field in form.base_fields.items():
-                if not field.required or (field.required and field.initial is not None):
-                    fields.append((name, field.help_text))
-        return fields
+        if not hasattr(cls, '_optional_fields'):
+            meta = cls.get_meta()
+            cls._optional_fields [
+                (name, field.help_text)
+                for form in meta.forms
+                for name, field in form.base_fields.items()
+                if not field.required or (field.required and field.initial is not None)
+            ]
+        return cls._optional_fields
 
     @classmethod
     def all_fields(cls):
         """
         Get an aggregate list of the form fields from all of the forms in cls.Osmosis.
         """
-        meta = cls.get_meta()
-        fields = []
-        for form in meta.forms:
-            for name, field in form.base_fields.items():
-                fields.append((name, field.help_text))
-        return fields
+        if not hasattr(cls, '_all_fields'):
+            meta = cls.get_meta()
+            cls._all_fields = [
+                (name, field.help_text)
+                for form in meta.forms
+                for name, field in form.base_fields.items()
+            ]
+        return cls._all_fields
 
     @classmethod
     def get_meta(cls):
@@ -141,7 +147,6 @@ class AbstractImportTask(models.Model):
 
             # If we were given any forms by their module path, then swap
             # them here so that meta.forms is always a list of classes
-            new_forms = []
             for form in meta.forms:
                 if isinstance(form, basestring):
                     module, klass = form.rsplit(".", 1)
@@ -156,8 +161,10 @@ class AbstractImportTask(models.Model):
 
     @classmethod
     def get_shard_model(cls):
-        shard_model = cls.get_meta().shard_model.split('.')
-        return apps.get_model(app_label=shard_model[0], model_name=shard_model[1])
+        if not hasattr(cls, '_shard_model'):
+            shard_model = cls.get_meta().shard_model.split('.')
+            cls._shard_model = apps.get_model(app_label=shard_model[0], model_name=shard_model[1])
+        return cls._shard_model
 
     def defer(self, kallable, *args, **kwargs):
         kwargs['_queue'] = self.get_meta().queue
@@ -177,7 +184,7 @@ class AbstractImportTask(models.Model):
         Return False to skip this row of data entirely
         """
 
-        if not getattr(self, "detected_dialect", None):
+        if not getattr(self, "detected_dialect", False):
             # Sniff for the dialect of the CSV file
 
             pos = handle.tell()
@@ -203,10 +210,10 @@ class AbstractImportTask(models.Model):
 
             self.detected_dialect = {x: getattr(dialect, x) for x in dialect_attrs}
 
-        if not getattr(self, "reader", None):
+        if not getattr(self, "reader", False):
             self.reader = csv.reader(handle, **self.detected_dialect)
 
-        if not getattr(self, "detected_columns", None):
+        if not getattr(self, "detected_columns", False):
             # On first iteration, the line will be the column headings,
             # store those and return False to skip processing
             columns = self.reader.next()
@@ -395,8 +402,14 @@ class ImportShard(models.Model):
 
     @property
     def task(self):
-        model = get_model(*self.task_model_path.split("."))
-        return model.objects.get(pk=self.task_id)
+        if not hasattr(self, '_task_cache'):
+            self._task_cache = ''
+            self._task = None
+        if self.task_model_path + self.task_id != self._task_cache:
+            model = get_model(*self.task_model_path.split("."))
+            self._task = model.objects.get(pk=self.task_id)
+            self._task_cache = self.task_model_path + self.task_id
+        return self._task
 
     def process(self):
         meta = self.task.get_meta()
@@ -437,12 +450,12 @@ class ImportShard(models.Model):
                     self.handle_error(this.start_line_number + i, cleaned_data, errors)
             else:
                 # We've encountered an error, call the error handler
-                errors = []
-                for form in forms:
-                    for name, errs in form.errors.items():
-                        for err in errs:
-                            errors.append("{0}: {1}".format(name, err))
-
+                errors = [
+                    "{0}: {1}".format(name, err)
+                    for form in forms
+                    for name, errs in form.errors.items()
+                    for err in errs
+                ]
                 self.handle_error(this.start_line_number + i, data, errors)
 
             # Now update the last processed row, transactionally
